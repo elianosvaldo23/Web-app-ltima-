@@ -1,29 +1,40 @@
 #!/usr/bin/env python3
 """
 Script para configurar la base de datos inicial de Zoolbot
+Optimizado para Render
 """
 
+import os
 import pymongo
 from pymongo import MongoClient
 from datetime import datetime
 import logging
+from dotenv import load_dotenv
 
-# Configuración
-MONGO_URI = "mongodb+srv://zoobot:zoobot@zoolbot.6avd6qf.mongodb.net/zoolbot?retryWrites=true&w=majority&appName=Zoolbot"
-DB_NAME = "zoolbot"
+# Cargar variables de entorno
+load_dotenv()
 
-logging.basicConfig(level=logging.INFO)
+# Configuración desde variables de entorno
+MONGO_URI = os.getenv("MONGODB_URI", "mongodb+srv://zoobot:zoobot@zoolbot.6avd6qf.mongodb.net/zoolbot?retryWrites=true&w=majority&appName=Zoolbot")
+DB_NAME = os.getenv("DB_NAME", "zoolbot")
+
+# Configurar logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 def setup_database():
     """Configurar la base de datos inicial"""
     try:
-        client = MongoClient(MONGO_URI)
+        logger.info("🔄 Connecting to MongoDB...")
+        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=10000)
         db = client[DB_NAME]
         
         # Verificar conexión
         db.command('ping')
-        logger.info("✅ Conexión a MongoDB exitosa")
+        logger.info("✅ MongoDB connection successful")
         
         # Crear colecciones e índices
         collections = [
@@ -36,12 +47,16 @@ def setup_database():
             'settings'
         ]
         
+        logger.info("🔄 Creating collections...")
         for collection_name in collections:
             if collection_name not in db.list_collection_names():
                 db.create_collection(collection_name)
-                logger.info(f"✅ Colección '{collection_name}' creada")
+                logger.info(f"✅ Collection '{collection_name}' created")
+            else:
+                logger.info(f"ℹ️ Collection '{collection_name}' already exists")
         
         # Crear índices
+        logger.info("🔄 Creating indexes...")
         indices = [
             ('users', 'telegram_id', True),  # único
             ('users', 'referrer_id', False),
@@ -61,11 +76,14 @@ def setup_database():
                     db[collection_name].create_index(field, unique=unique)
                 else:
                     db[collection_name].create_index(field, unique=unique)
-                logger.info(f"✅ Índice en {collection_name}.{field} creado")
+                logger.info(f"✅ Index on {collection_name}.{field} created")
             except pymongo.errors.DuplicateKeyError:
-                logger.info(f"ℹ️ Índice en {collection_name}.{field} ya existe")
+                logger.info(f"ℹ️ Index on {collection_name}.{field} already exists")
+            except Exception as e:
+                logger.warning(f"⚠️ Warning creating index on {collection_name}.{field}: {e}")
         
         # Insertar configuración inicial
+        logger.info("🔄 Setting up initial configuration...")
         default_settings = {
             'maintenance_mode': False,
             'diamond_to_ton_rate': 100000,
@@ -78,9 +96,12 @@ def setup_database():
         
         if not db.settings.find_one():
             db.settings.insert_one(default_settings)
-            logger.info("✅ Configuración inicial insertada")
+            logger.info("✅ Initial settings inserted")
+        else:
+            logger.info("ℹ️ Settings already exist")
         
         # Insertar tareas de ejemplo
+        logger.info("🔄 Setting up sample tasks...")
         sample_tasks = [
             {
                 'title': '🎉 Únete a nuestro canal oficial',
@@ -113,13 +134,36 @@ def setup_database():
         
         if db.tasks.count_documents({}) == 0:
             db.tasks.insert_many(sample_tasks)
-            logger.info("✅ Tareas de ejemplo insertadas")
+            logger.info("✅ Sample tasks inserted")
+        else:
+            logger.info("ℹ️ Tasks already exist")
         
-        logger.info("🎉 Base de datos configurada exitosamente")
+        # Estadísticas finales
+        stats = {
+            'users': db.users.count_documents({}),
+            'tasks': db.tasks.count_documents({}),
+            'transactions': db.transactions.count_documents({})
+        }
+        
+        logger.info("📊 Database setup completed successfully!")
+        logger.info(f"📈 Stats: {stats}")
+        
+        return True
         
     except Exception as e:
-        logger.error(f"❌ Error configurando la base de datos: {e}")
+        logger.error(f"❌ Error setting up database: {e}")
         raise
+    finally:
+        try:
+            client.close()
+            logger.info("🔌 Database connection closed")
+        except:
+            pass
 
 if __name__ == '__main__':
-    setup_database()
+    try:
+        setup_database()
+        logger.info("🎉 Database setup completed successfully!")
+    except Exception as e:
+        logger.error(f"💥 Setup failed: {e}")
+        exit(1)

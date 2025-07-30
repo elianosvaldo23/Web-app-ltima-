@@ -6,6 +6,10 @@ const nextConfig = {
   env: {
     MONGODB_URI: process.env.MONGODB_URI,
   },
+  output: 'standalone',
+  poweredByHeader: false,
+  compress: true,
+  swcMinify: true,
   headers: async () => {
     return [
       {
@@ -35,6 +39,18 @@ const nextConfig = {
   },
   images: {
     unoptimized: true,
+    domains: ['localhost'],
+  },
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        net: false,
+        tls: false,
+      };
+    }
+    return config;
   },
 };
 

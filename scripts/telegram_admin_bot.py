@@ -6,6 +6,10 @@ import json
 import os
 import re
 
+# Cargar variables de entorno
+from dotenv import load_dotenv
+load_dotenv()
+
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command, Text
 from aiogram.fsm.context import FSMContext
@@ -18,14 +22,17 @@ import pymongo
 from pymongo import MongoClient
 from bson import ObjectId
 
-# Configuración
-BOT_TOKEN = "8063509725:AAFZIEmk0eNZ5Z56-HOz-bnwyg2rytPB-k"
-ADMIN_ID = 1742433244
-MONGO_URI = "mongodb+srv://zoobot:zoobot@zoolbot.6avd6qf.mongodb.net/zoolbot?retryWrites=true&w=majority&appName=Zoolbot"
-DB_NAME = "zoolbot"
+# Configuración desde variables de entorno
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8063509725:AAFZIEmk0eNZ5Z56-HOz-bnwyg2rytPB-k")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "1742433244"))
+MONGO_URI = os.getenv("MONGODB_URI", "mongodb+srv://zoobot:zoobot@zoolbot.6avd6qf.mongodb.net/zoolbot?retryWrites=true&w=majority&appName=Zoolbot")
+DB_NAME = os.getenv("DB_NAME", "zoolbot")
 
-# Configurar logging
-logging.basicConfig(level=logging.INFO)
+# Configurar logging para producción
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # Estados para FSM
@@ -53,9 +60,16 @@ bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-# Conectar a MongoDB
-client = MongoClient(MONGO_URI)
-db = client[DB_NAME]
+# Conectar a MongoDB con manejo de errores mejorado
+try:
+    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+    db = client[DB_NAME]
+    # Verificar conexión
+    db.command('ping')
+    logger.info("✅ Connected to MongoDB successfully")
+except Exception as e:
+    logger.error(f"❌ Failed to connect to MongoDB: {e}")
+    raise
 
 class AdminBot:
     def __init__(self):
@@ -67,108 +81,150 @@ class AdminBot:
     
     async def get_user_by_id(self, user_id: int) -> Optional[Dict]:
         """Obtener usuario por ID de Telegram"""
-        return db.users.find_one({"telegram_id": user_id})
+        try:
+            return db.users.find_one({"telegram_id": user_id})
+        except Exception as e:
+            logger.error(f"Error getting user {user_id}: {e}")
+            return None
     
     async def get_all_users(self) -> List[Dict]:
         """Obtener todos los usuarios"""
-        return list(db.users.find())
+        try:
+            return list(db.users.find())
+        except Exception as e:
+            logger.error(f"Error getting all users: {e}")
+            return []
     
     async def get_user_stats(self) -> Dict[str, Any]:
         """Obtener estadísticas de usuarios"""
-        total_users = db.users.count_documents({})
-        active_today = db.users.count_documents({
-            "last_active": {"$gte": datetime.now().replace(hour=0, minute=0, second=0)}
-        })
-        banned_users = db.users.count_documents({"is_banned": True})
-        total_diamonds = sum(user.get("diamonds", 0) for user in db.users.find())
-        
-        return {
-            "total_users": total_users,
-            "active_today": active_today,
-            "banned_users": banned_users,
-            "total_diamonds": total_diamonds
-        }
+        try:
+            total_users = db.users.count_documents({})
+            active_today = db.users.count_documents({
+                "last_active": {"$gte": datetime.now().replace(hour=0, minute=0, second=0)}
+            })
+            banned_users = db.users.count_documents({"is_banned": True})
+            total_diamonds = sum(user.get("diamonds", 0) for user in db.users.find())
+            
+            return {
+                "total_users": total_users,
+                "active_today": active_today,
+                "banned_users": banned_users,
+                "total_diamonds": total_diamonds
+            }
+        except Exception as e:
+            logger.error(f"Error getting user stats: {e}")
+            return {
+                "total_users": 0,
+                "active_today": 0,
+                "banned_users": 0,
+                "total_diamonds": 0
+            }
     
     async def create_task(self, title: str, description: str, reward: int, url: str, verification_type: str = "url_visit") -> str:
         """Crear nueva tarea"""
-        task = {
-            "title": title,
-            "description": description,
-            "reward": reward,
-            "url": url,
-            "verification_type": verification_type,
-            "is_active": True,
-            "created_at": datetime.now()
-        }
-        result = db.tasks.insert_one(task)
-        return str(result.inserted_id)
+        try:
+            task = {
+                "title": title,
+                "description": description,
+                "reward": reward,
+                "url": url,
+                "verification_type": verification_type,
+                "is_active": True,
+                "created_at": datetime.now()
+            }
+            result = db.tasks.insert_one(task)
+            logger.info(f"Task created with ID: {result.inserted_id}")
+            return str(result.inserted_id)
+        except Exception as e:
+            logger.error(f"Error creating task: {e}")
+            raise
     
     async def get_all_tasks(self) -> List[Dict]:
         """Obtener todas las tareas"""
-        return list(db.tasks.find())
+        try:
+            return list(db.tasks.find())
+        except Exception as e:
+            logger.error(f"Error getting tasks: {e}")
+            return []
     
     async def toggle_task_status(self, task_id: str) -> bool:
         """Activar/desactivar tarea"""
-        task = db.tasks.find_one({"_id": ObjectId(task_id)})
-        if task:
-            new_status = not task.get("is_active", True)
-            db.tasks.update_one(
-                {"_id": ObjectId(task_id)},
-                {"$set": {"is_active": new_status}}
-            )
-            return new_status
-        return False
+        try:
+            task = db.tasks.find_one({"_id": ObjectId(task_id)})
+            if task:
+                new_status = not task.get("is_active", True)
+                db.tasks.update_one(
+                    {"_id": ObjectId(task_id)},
+                    {"$set": {"is_active": new_status}}
+                )
+                return new_status
+            return False
+        except Exception as e:
+            logger.error(f"Error toggling task status: {e}")
+            return False
     
     async def update_user_balance(self, user_id: int, amount: int, operation: str = "add") -> bool:
         """Actualizar balance del usuario"""
-        user = await self.get_user_by_id(user_id)
-        if not user:
+        try:
+            user = await self.get_user_by_id(user_id)
+            if not user:
+                return False
+            
+            if operation == "add":
+                db.users.update_one(
+                    {"telegram_id": user_id},
+                    {"$inc": {"diamonds": amount}}
+                )
+            elif operation == "subtract":
+                db.users.update_one(
+                    {"telegram_id": user_id},
+                    {"$inc": {"diamonds": -amount}}
+                )
+            elif operation == "set":
+                db.users.update_one(
+                    {"telegram_id": user_id},
+                    {"$set": {"diamonds": amount}}
+                )
+            
+            # Registrar transacción
+            db.transactions.insert_one({
+                "user_id": user_id,
+                "type": "admin_adjustment",
+                "amount": amount,
+                "currency": "diamonds",
+                "status": "completed",
+                "created_at": datetime.now(),
+                "operation": operation
+            })
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error updating user balance: {e}")
             return False
-        
-        if operation == "add":
-            db.users.update_one(
-                {"telegram_id": user_id},
-                {"$inc": {"diamonds": amount}}
-            )
-        elif operation == "subtract":
-            db.users.update_one(
-                {"telegram_id": user_id},
-                {"$inc": {"diamonds": -amount}}
-            )
-        elif operation == "set":
-            db.users.update_one(
-                {"telegram_id": user_id},
-                {"$set": {"diamonds": amount}}
-            )
-        
-        # Registrar transacción
-        db.transactions.insert_one({
-            "user_id": user_id,
-            "type": "admin_adjustment",
-            "amount": amount,
-            "currency": "diamonds",
-            "status": "completed",
-            "created_at": datetime.now(),
-            "operation": operation
-        })
-        
-        return True
     
     async def ban_user(self, user_id: int, reason: str = "") -> bool:
         """Banear usuario"""
-        result = db.users.update_one(
-            {"telegram_id": user_id},
-            {"$set": {"is_banned": True, "ban_reason": reason, "banned_at": datetime.now()}}
-        )
-        return result.modified_count > 0
+        try:
+            result = db.users.update_one(
+                {"telegram_id": user_id},
+                {"$set": {"is_banned": True, "ban_reason": reason, "banned_at": datetime.now()}}
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Error banning user: {e}")
+            return False
     
     async def unban_user(self, user_id: int) -> bool:
         """Desbanear usuario"""
-        result = db.users.update_one(
-            {"telegram_id": user_id},
-            {"$set": {"is_banned": False}, "$unset": {"ban_reason": "", "banned_at": ""}}
-        )
-        return result.modified_count > 0
+        try:
+            result = db.users.update_one(
+                {"telegram_id": user_id},
+                {"$set": {"is_banned": False}, "$unset": {"ban_reason": "", "banned_at": ""}}
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Error unbanning user: {e}")
+            return False
     
     async def send_announcement(self, message: str) -> Dict[str, int]:
         """Enviar anuncio a todos los usuarios"""
@@ -639,23 +695,32 @@ async def callback_toggle_ban(callback: types.CallbackQuery):
     else:
         await callback.answer("❌ Error al cambiar el estado del usuario", show_alert=True)
 
-# Error handler
+# Error handler mejorado
 @dp.error()
 async def error_handler(event, exception):
     """Manejar errores"""
-    logger.error(f"Error: {exception}")
+    logger.error(f"Error in bot: {exception}")
     return True
 
 async def main():
     """Función principal"""
-    logger.info("Iniciando bot de administración...")
+    logger.info("🤖 Starting Zoolbot Admin Bot...")
+    
+    # Verificar configuración
+    if not BOT_TOKEN or BOT_TOKEN == "YOUR_BOT_TOKEN":
+        logger.error("❌ BOT_TOKEN not configured")
+        return
+    
+    if not MONGO_URI:
+        logger.error("❌ MONGODB_URI not configured")
+        return
     
     # Verificar conexión a la base de datos
     try:
         db.command('ping')
-        logger.info("✅ Conexión a MongoDB exitosa")
+        logger.info("✅ MongoDB connection verified")
     except Exception as e:
-        logger.error(f"❌ Error conectando a MongoDB: {e}")
+        logger.error(f"❌ MongoDB connection failed: {e}")
         return
     
     # Crear índices si no existen
@@ -663,19 +728,21 @@ async def main():
         db.users.create_index("telegram_id", unique=True)
         db.tasks.create_index("created_at")
         db.transactions.create_index([("user_id", 1), ("created_at", -1)])
-        logger.info("✅ Índices de base de datos verificados")
+        logger.info("✅ Database indexes verified")
     except Exception as e:
-        logger.warning(f"⚠️ Advertencia con índices: {e}")
+        logger.warning(f"⚠️ Index warning: {e}")
     
     # Iniciar polling
     try:
+        logger.info("🚀 Bot started successfully")
         await dp.start_polling(bot, skip_updates=True)
     except KeyboardInterrupt:
-        logger.info("Bot detenido por el usuario")
+        logger.info("🛑 Bot stopped by user")
     except Exception as e:
-        logger.error(f"Error en el bot: {e}")
+        logger.error(f"❌ Bot error: {e}")
     finally:
         await bot.session.close()
+        logger.info("🔌 Bot session closed")
 
 if __name__ == '__main__':
     asyncio.run(main())

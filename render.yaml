@@ -1,0 +1,38 @@
+services:
+  # Web Service - Mini App
+  - type: web
+    name: zoolbot-miniapp
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false
+
+  # Background Worker - Admin Bot
+  - type: worker
+    name: zoolbot-admin-bot
+    env: python3
+    region: oregon
+    plan: starter
+    buildCommand: pip install -r scripts/requirements.txt
+    startCommand: python scripts/telegram_admin_bot.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_ID
+        value: "1742433244"
+      - key: MONGODB_URI
+        sync: false
+      - key: DB_NAME
+        value: "zoolbot"
+
+databases:
+  # Job para setup inicial de base de datos
+  - name: zoolbot-db-setup
+    databaseName: zoolbot
+    user: setup

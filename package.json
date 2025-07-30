@@ -1,12 +1,12 @@
 {
-  "name": "my-v0-project",
+  "name": "zoolbot-miniapp",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "build": "next build",
     "dev": "next dev",
     "lint": "next lint",
-    "start": "next start"
+    "start": "next start -p $PORT"
   },
   "dependencies": {
     "@aws-sdk/credential-providers": "latest",
@@ -75,5 +75,9 @@
     "postcss": "^8.5",
     "tailwindcss": "^3.4.17",
     "typescript": "^5"
+  },
+  "engines": {
+    "node": "18.x",
+    "npm": "9.x"
   }
 }
